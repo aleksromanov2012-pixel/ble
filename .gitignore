@@ -1,0 +1,34 @@
+# AI Company auto-backup — merge into project .gitignore
+
+.DS_Store
+.env
+.env.*
+!.env.example
+*.local
+
+node_modules/
+.next/
+dist/
+build/
+coverage/
+.turbo/
+.vercel/
+
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+*.session
+*.session-journal
+sessions/
+
+.idea/
+.vscode/
+*.swp
+*.log
+
+# Secrets — never commit
+**/config.json
+!**/config.example.json
+!**/config.example.json

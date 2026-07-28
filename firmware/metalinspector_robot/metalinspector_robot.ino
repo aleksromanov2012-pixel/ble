@@ -73,7 +73,7 @@ static const float LANE_PITCH_MM = ROBOT_WID_MM;    // 220 — как /api/passe
 static const float TRACK_WIDTH_MM = ROBOT_WID_MM;
 static const float FRAME_CROSS_MM = 225.0f;
 
-static const float BACKUP_MM = 55.0f;
+static const float BACKUP_MM = 70.0f;
 static const float TURN_90_DEG = 90.0f;
 static const float NUDGE_MAX_DEG = 14.0f;
 static const float HOME_RADIUS_MM = 140.0f;
@@ -81,13 +81,15 @@ static const float HOME_RADIUS_MM = 140.0f;
 static const float KP_STRAIGHT = 0.55f;
 static const float KI_STRAIGHT = 0.012f;
 static const int CORR_MAX = 70;
-static const int TRIM_LEFT = 8;    // был 52 (против увода вправо) — теперь клонит влево
-static const int TRIM_RIGHT = 42;  // сильнее правый борт → тянет курс вправо
-static const int TURN_PWM = 130;   // повороты змейки быстрее (было 95)
-static const int NUDGE_PWM = 85;
-static const int BACKUP_PWM = 55;
+static const int TRIM_LEFT = 0;    // увод влево → левый не усиливаем
+static const int TRIM_RIGHT = 68;  // сильнее правый → курс вправо/прямо
+static const int TURN_PWM = 135;   // повороты змейки
+static const int NUDGE_PWM = 90;
+static const int BACKUP_PWM = 60;
 static const int SPEED_DEFAULT = 55;
-static const int SPEED_AUTO_MAX = 75;  // авто чуть мягче — ровнее полосы
+static const int SPEED_AUTO_MAX = 75;
+static const uint32_t TURN90_MS = 850;   // запас по времени, если энкодеры врут
+static const uint32_t BACKUP_MS = 650;
 
 int speedVal = SPEED_DEFAULT;
 volatile long encLV = 0, encLN = 0, encRN = 0, encRV = 0;
@@ -179,9 +181,18 @@ float maneuverProgressMm() {
   return ((float)(labs(L-manL0)+labs(R-manR0))/2.0f)*MM_PER_TICK;
 }
 bool maneuverDone() {
-  if (manStartMs && (millis() - manStartMs) > 7000) return true;
+  if (!manStartMs) return false;
+  uint32_t elapsed = millis() - manStartMs;
+  if (elapsed > 7000) return true;
+  // Time fallback: энкодеры часто врут — иначе поворот «зависает» или недоворачивает
+  if (nav == NAV_BACKUP && elapsed >= BACKUP_MS) return true;
+  if ((nav == NAV_TURN1 || nav == NAV_TURN2) && elapsed >= TURN90_MS) return true;
+  if (nav == NAV_NUDGE && elapsed >= (TURN90_MS / 3)) return true;
   return maneuverProgressMm() >= manTargetMm;
 }
+
+// Чётная полоса (0,2,…) → два поворота ВПРАВО; нечётная → два ВЛЕВО.
+bool serpTurnRight() { return (laneIndex % 2) == 0; }
 
 void emitLine(const char* line) {
   Serial.println(line);
@@ -399,6 +410,7 @@ void beginTurn90(bool right, NavState st){
   turnRightDir=right; ignoreCliffLatchGate=true; clearCliffLatch("t");
   beginManeuver(arcMmForDeg(TURN_90_DEG)); snapPoseBaseline(); setNav(st);
   driveTurn(right,turnPwm());
+  emitLine(right ? "SERP_RIGHT" : "SERP_LEFT");
   Serial.printf("%s 90 %s lane=%d pwm=%d\n",navName(st),right?"RIGHT":"LEFT",laneIndex,turnPwm());
 }
 void beginNudge(bool right){
@@ -410,16 +422,20 @@ void beginBackup(){
   ignoreCliffLatchGate=true; clearCliffLatch("b");
   beginManeuver(BACKUP_MM); snapPoseBaseline(); setNav(NAV_BACKUP);
   setMotorsRaw(-BACKUP_PWM,-BACKUP_PWM);
+  emitLine("SERP_BACK");
 }
 void beginShift(){
   ignoreCliffLatchGate=true; clearCliffLatch("s");
   beginManeuver(lanePitchMm); resetStraightBaseline(); snapPoseBaseline();
   setNav(NAV_SHIFT); updateStraightDrive();
+  emitLine("SERP_SHIFT");
 }
 void onLaneEnd(){
   cliffLatched=true; cliffCulprit=0; applyBrakeAll();
   emitCliffEvent("both"); emitLine("LANE_END");
-  Serial.printf("LANE_END odo lane=%d dist=%.0f/%.0f\n", laneIndex, pathMm-laneStartPathMm, laneLenMm);
+  Serial.printf("LANE_END odo lane=%d dist=%.0f/%.0f turn=%s\n",
+                laneIndex, pathMm-laneStartPathMm, laneLenMm,
+                serpTurnRight()?"RIGHT":"LEFT");
   beginBackup();
 }
 void finishCoverage(){
@@ -480,7 +496,7 @@ void pollCliff(){
     applyBrakeAll();
     emitLine("CLIFF_SHIFT");
     if(autoMission){
-      beginTurn90(laneIndex%2==0, NAV_TURN2);
+      beginTurn90(serpTurnRight(), NAV_TURN2);
     } else {
       setNav(NAV_IDLE);
     }
@@ -497,17 +513,11 @@ void pollCliff(){
     emitLine(mask==3?"CLIFF_BOTH":(mask==1?"CLIFF_FL":"CLIFF_FR"));
 
     if(autoMission && (nav==NAV_CRUISE || nav==NAV_SCAN_CRUISE)){
-      // ЗМЕЙКА: край плиты = конец полосы.
-      // Не требуем nearEnd по одометру (энкодеры часто врут) — иначе вечный стоп.
-      // Один борт в самом начале полосы (<80 мм) → лёгкий nudge; иначе backup→90→сдвиг→90.
-      if(mask != 3 && progressed < 80.0f){
-        handleCliffOnCruise(mask);
-      } else {
-        emitLine("LANE_END");
-        beginBackup();
-      }
+      // Всегда змейка у края: назад → 90 → сдвиг → 90 → следующая полоса
+      // (без nudge — иначе «просто остановился»)
+      emitLine("LANE_END");
+      beginBackup();
     } else {
-      // ручной F или HOME — стоп у края
       setNav(NAV_IDLE);
     }
   }
@@ -527,7 +537,8 @@ void tickNav(){
       break;
     case NAV_BACKUP:
       setMotorsRaw(-BACKUP_PWM,-BACKUP_PWM);
-      if(maneuverDone()){ applyBrakeAll(); beginTurn90(laneIndex%2==0, NAV_TURN1); }
+      // полоса 0,2,… → ВПРАВО; 1,3,… → ВЛЕВО
+      if(maneuverDone()){ applyBrakeAll(); beginTurn90(serpTurnRight(), NAV_TURN1); }
       break;
     case NAV_TURN1:
       driveTurn(turnRightDir,turnPwm());
@@ -535,13 +546,14 @@ void tickNav(){
       break;
     case NAV_SHIFT:
       updateStraightDrive();
-      if(maneuverDone()&&!cliffLatched){ applyBrakeAll(); beginTurn90(laneIndex%2==0, NAV_TURN2); }
+      if(maneuverDone()&&!cliffLatched){ applyBrakeAll(); beginTurn90(serpTurnRight(), NAV_TURN2); }
       break;
     case NAV_TURN2:
       driveTurn(turnRightDir,turnPwm());
       if(maneuverDone()){
         applyBrakeAll();
         laneIndex++;
+        emitLine(laneIndex % 2 == 0 ? "SERP_LANE_UP" : "SERP_LANE_DOWN");
         Serial.printf("SERP next lane %d / %d\n", laneIndex, lanesPlanned);
         if (planReady && laneIndex >= lanesPlanned) finishCoverage();
         else enterCruise();
@@ -553,10 +565,7 @@ void tickNav(){
       bool clear=nudgeRightDir?((m&1)==0):((m&2)==0);
       if(clear||maneuverDone()){
         applyBrakeAll(); m=readFrontCliffMask();
-        float progressed = pathMm - laneStartPathMm;
-        // После nudge: оба края или один край после прогресса → змейка, не стоп
-        if(m==3 || (m && progressed >= 80.0f)) onLaneEnd();
-        else if(m) handleCliffOnCruise(m);
+        if(m) onLaneEnd();
         else enterCruise();
       }
       break;}

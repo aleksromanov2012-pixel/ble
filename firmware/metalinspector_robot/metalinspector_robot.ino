@@ -73,23 +73,24 @@ static const float LANE_PITCH_MM = ROBOT_WID_MM;    // 220 — как /api/passe
 static const float TRACK_WIDTH_MM = ROBOT_WID_MM;
 static const float FRAME_CROSS_MM = 225.0f;
 
-static const float BACKUP_MM = 70.0f;
-static const float TURN_90_DEG = 90.0f;
+static const float BACKUP_MM = 130.0f;   // заметно назад от края
+static const float TURN_90_DEG = 115.0f; // недоворот на магн. колёсах → перекрут
 static const float NUDGE_MAX_DEG = 14.0f;
 static const float HOME_RADIUS_MM = 140.0f;
 
-static const float KP_STRAIGHT = 0.55f;
-static const float KI_STRAIGHT = 0.012f;
-static const int CORR_MAX = 70;
-static const int TRIM_LEFT = 0;    // увод влево → левый не усиливаем
-static const int TRIM_RIGHT = 68;  // сильнее правый → курс вправо/прямо
-static const int TURN_PWM = 135;   // повороты змейки
-static const int NUDGE_PWM = 90;
-static const int BACKUP_PWM = 60;
+static const float KP_STRAIGHT = 0.35f;  // слабее PI — trim важнее
+static const float KI_STRAIGHT = 0.006f;
+static const int CORR_MAX = 35;
+static const int TRIM_LEFT = 0;
+static const int TRIM_RIGHT = 95;  // сильно вправо против увода влево
+static const int TURN_PWM = 145;
+static const int NUDGE_PWM = 95;
+static const int BACKUP_PWM = 75;
 static const int SPEED_DEFAULT = 55;
 static const int SPEED_AUTO_MAX = 75;
-static const uint32_t TURN90_MS = 850;   // запас по времени, если энкодеры врут
-static const uint32_t BACKUP_MS = 650;
+// Время — только ДЛИННЫЙ запас (раньше 650/850 обрывали манёвр слишком рано)
+static const uint32_t TURN90_MS = 1600;
+static const uint32_t BACKUP_MS = 1600;
 
 int speedVal = SPEED_DEFAULT;
 volatile long encLV = 0, encLN = 0, encRN = 0, encRV = 0;
@@ -184,11 +185,13 @@ bool maneuverDone() {
   if (!manStartMs) return false;
   uint32_t elapsed = millis() - manStartMs;
   if (elapsed > 7000) return true;
-  // Time fallback: энкодеры часто врут — иначе поворот «зависает» или недоворачивает
+  // Главный критерий — путь по энкодерам
+  if (maneuverProgressMm() >= manTargetMm) return true;
+  // Время только как длинный fallback (короткий таймер раньше недоворачивал / мало откатывал)
   if (nav == NAV_BACKUP && elapsed >= BACKUP_MS) return true;
   if ((nav == NAV_TURN1 || nav == NAV_TURN2) && elapsed >= TURN90_MS) return true;
-  if (nav == NAV_NUDGE && elapsed >= (TURN90_MS / 3)) return true;
-  return maneuverProgressMm() >= manTargetMm;
+  if (nav == NAV_NUDGE && elapsed >= 500) return true;
+  return false;
 }
 
 // Чётная полоса (0,2,…) → два поворота ВПРАВО; нечётная → два ВЛЕВО.
@@ -291,15 +294,14 @@ void updateStraightDrive(){
 }
 int turnPwm(){
   int p = TURN_PWM;
-  if (p < 90) p = 90;
-  if (p > 150) p = 150;
+  if (p < 100) p = 100;
+  if (p > 170) p = 170;
   return p;
 }
-// танковый разворот всеми 4
 void driveTurn(bool right, int pwm) {
   ignoreCliffLatchGate = true;
-  if (pwm < 90) pwm = 90;
-  if (pwm > 150) pwm = 150;
+  if (pwm < 100) pwm = 100;
+  if (pwm > 170) pwm = 170;
   if (right) setMotorsRaw(pwm, -pwm);
   else setMotorsRaw(-pwm, pwm);
 }

@@ -287,6 +287,22 @@ void setMotorsRaw(int leftSpeed,int rightSpeed){
   driveMotorSigned(DRIVER2_MOTOR2_DIR,DRIVER2_MOTOR2_PWM,rightSpeed);
 }
 void stopAll(){ autoMission=false; mappingMode=false; ignoreCliffLatchGate=false; setPhase(PHASE_IDLE); setNav(NAV_IDLE); applyBrakeAll(); }
+
+// WASD / ручные FBLR: края ToF полностью выкл — езда без стопов
+void beginManualDrive() {
+  autoMission = false;
+  mappingMode = false;
+  setPhase(PHASE_IDLE);
+  if (cliffEnabled) {
+    cliffEnabled = false;
+    emitLine("CLIFF_OFF");
+    Serial.println("cliff OFF (manual WASD)");
+  }
+  cliffLatched = false;
+  cliffCulprit = -1;
+  cliffHitStreak = 0;
+  ignoreCliffLatchGate = true;
+}
 void updateStraightDrive(){
   if(!(nav==NAV_CRUISE||nav==NAV_SCAN_CRUISE||nav==NAV_SHIFT||nav==NAV_HOME_DRIVE)||cliffLatched)return;
   long L=0,R=0; readGuideTicks(&L,&R);
@@ -661,16 +677,35 @@ void handleCommand(char c){
   switch(toupper(c)){
     case 'G': startMission(); break;
     case 'F':
-      autoMission=false; mappingMode=false; setPhase(PHASE_IDLE); ignoreCliffLatchGate=false;
-      if(!cliffEnabled){ clearCliffLatch("F"); setNav(NAV_CRUISE); resetStraightBaseline(); updateStraightDrive(); break; }
-      if(cliffLatched&&readFrontCliffMask()==0) clearCliffLatch("F");
-      if(cliffLatched){ applyBrakeAll(); break; }
-      setNav(NAV_CRUISE); resetStraightBaseline(); updateStraightDrive(); break;
-    case 'B': stopAll(); setMotorsRaw(-cruiseSpeed(),-cruiseSpeed()); break;
-    case 'L': stopAll(); setMotorsRaw(-(cruiseSpeed()+TRIM_LEFT),cruiseSpeed()+TRIM_RIGHT); break;
-    case 'R': stopAll(); setMotorsRaw(cruiseSpeed()+TRIM_LEFT,-(cruiseSpeed()+TRIM_RIGHT)); break;
-    case 'S': stopAll(); break;
-    case 'H': autoMission=true; beginHome(); break;
+      beginManualDrive();
+      setNav(NAV_CRUISE);
+      resetStraightBaseline();
+      updateStraightDrive();
+      break;
+    case 'B':
+      beginManualDrive();
+      setNav(NAV_IDLE);
+      setMotorsRaw(-cruiseSpeed(), -cruiseSpeed());
+      break;
+    case 'L':
+      beginManualDrive();
+      setNav(NAV_IDLE);
+      setMotorsRaw(-(cruiseSpeed()+TRIM_LEFT), cruiseSpeed()+TRIM_RIGHT);
+      break;
+    case 'R':
+      beginManualDrive();
+      setNav(NAV_IDLE);
+      setMotorsRaw(cruiseSpeed()+TRIM_LEFT, -(cruiseSpeed()+TRIM_RIGHT));
+      break;
+    case 'S':
+      // стоп, но края остаются выкл — следующий WASD снова свободный
+      autoMission = false;
+      mappingMode = false;
+      setPhase(PHASE_IDLE);
+      setNav(NAV_IDLE);
+      applyBrakeAll();
+      break;
+    case 'H': autoMission=true; cliffEnabled=true; beginHome(); break;
     case 'C':
       clearCliffLatch("C");
       if(autoMission && (nav==NAV_IDLE || cliffLatched)){
@@ -685,7 +720,11 @@ void handleCommand(char c){
 }
 bool handleMotorCommand(const String& s){
   if(!s.length()||(s[0]!='M'&&s[0]!='m'))return false;
-  stopAll(); int l=0,r=0; if(sscanf(s.c_str(),"%*c%d,%d",&l,&r)==2) setMotorsRaw(l,r); return true;
+  beginManualDrive();
+  setNav(NAV_IDLE);
+  int l=0,r=0;
+  if(sscanf(s.c_str(),"%*c%d,%d",&l,&r)==2) setMotorsRaw(l,r);
+  return true;
 }
 bool handleSpeedCommand(const String& s){
   if(s.length()<2||(s[0]!='V'&&s[0]!='v'))return false;

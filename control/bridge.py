@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-Пульт МеталИнспектор — USB/BLE + живая карта автообхода.
+Пульт МеталИнспектор — BLE (основной) / USB (опция) + живая карта.
 
-  python3 control/bridge.py
+  ROBOT_LINK=ble  python3 control/bridge.py   # по умолчанию: всё через BLE
+  ROBOT_LINK=usb  python3 control/bridge.py   # только USB-кабель
+  ROBOT_LINK=auto python3 control/bridge.py   # BLE, иначе USB
   → http://127.0.0.1:8765/
 """
 from __future__ import annotations
@@ -10,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import json
 import math
+import os
 import threading
 import time
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -21,6 +24,12 @@ HOST = "127.0.0.1"
 PORT = 8765
 BAUD = 115200
 
+# ble = команды + телеметрия только по BLE (змейка G, ODO, POSE, E,…)
+# usb = только кабель; auto = сначала BLE, USB как запасной
+LINK_PREF = os.environ.get("ROBOT_LINK", "ble").strip().lower()
+if LINK_PREF not in ("ble", "usb", "auto"):
+    LINK_PREF = "ble"
+
 DEVICE_NAME = "ESP32_ROBOT"
 SERVICE = "12345678-1234-1234-1234-1234567890ab"
 CMD_UUID = "abcdefab-1234-5678-1234-abcdefabcdef"
@@ -29,6 +38,7 @@ TELEM_UUID = "fedcbaab-1234-5678-1234-abcdefabcdef"
 state = {
     "ble": False,
     "link": "none",
+    "link_pref": LINK_PREF,
     "scanning": True,
     "name": DEVICE_NAME,
     "telem": "",
@@ -117,19 +127,30 @@ def ingest_line(text: str):
             state["updated"] = time.time()
         return
 
-    if text in ("CAMERA_ON", "SCAN_START", "MAP_START", "MAP_DONE", "HOME_START", "SCAN_SKIPPED", "SCAN_DONE", "SERP_DONE"):
+    if text in (
+        "CAMERA_ON", "SCAN_START", "MAP_START", "MAP_DONE", "HOME_START",
+        "SCAN_SKIPPED", "SCAN_DONE", "SERP_DONE", "SERP_START",
+    ):
         with _lock:
             state["event"] = text
             if text == "CAMERA_ON":
                 state["phase"] = "scan"
-            elif text == "MAP_START":
+            elif text in ("MAP_START", "SERP_START"):
                 state["phase"] = "map"
+                state["auto"] = True
             elif text == "HOME_START":
                 state["phase"] = "home"
             elif text in ("SCAN_SKIPPED", "SCAN_DONE", "SERP_DONE", "MAP_DONE"):
                 state["auto"] = False
                 if text == "SCAN_SKIPPED":
                     state["phase"] = "idle"
+            state["updated"] = time.time()
+        print(f"[robot] {text}")
+        return
+
+    if text.startswith("PLAN "):
+        with _lock:
+            state["event"] = text
             state["updated"] = time.time()
         print(f"[robot] {text}")
         return
@@ -297,6 +318,35 @@ def close_serial():
             _ser = None
 
 
+def _ble_send_cmd(cmd: str) -> bool:
+    if not (_ble_loop and _ble_queue and snapshot().get("link") == "ble"):
+        return False
+    try:
+        fut = asyncio.run_coroutine_threadsafe(_ble_queue.put(cmd), _ble_loop)
+        fut.result(timeout=2.0)
+        print(f"[ble] CMD {cmd}")
+        return True
+    except Exception as e:
+        print(f"[ble] queue fail: {e}")
+        return False
+
+
+def _usb_send_cmd(cmd: str) -> bool:
+    with _ser_lock:
+        s = _ser
+        if not (s and s.is_open):
+            return False
+        try:
+            s.write((cmd + "\n").encode("utf-8"))
+            s.flush()
+            print(f"[usb] CMD {cmd}")
+            return True
+        except Exception as e:
+            print(f"[usb] write fail: {e}")
+            close_serial()
+            return False
+
+
 def write_cmd(cmd: str) -> bool:
     cmd = cmd.strip()
     if not cmd:
@@ -312,50 +362,45 @@ def write_cmd(cmd: str) -> bool:
     if cmd.upper()[:1] in ("G", "Z"):
         reset_map()
 
-    with _ser_lock:
-        s = _ser
-        if s and s.is_open:
-            try:
-                s.write((cmd + "\n").encode("utf-8"))
-                s.flush()
-                print(f"[usb] CMD {cmd}")
-                return True
-            except Exception as e:
-                print(f"[usb] write fail: {e}")
-                close_serial()
-
-    if _ble_loop and _ble_queue and snapshot().get("link") == "ble":
-        try:
-            fut = asyncio.run_coroutine_threadsafe(_ble_queue.put(cmd), _ble_loop)
-            fut.result(timeout=2.0)
-            print(f"[ble] CMD {cmd}")
+    link = snapshot().get("link")
+    # BLE-first: змейка / руль / телеметрия-команды уходят по воздуху
+    if LINK_PREF == "ble" or link == "ble":
+        if _ble_send_cmd(cmd):
             return True
-        except Exception as e:
-            print(f"[ble] queue fail: {e}")
+        if LINK_PREF == "ble":
             return False
+    if LINK_PREF in ("usb", "auto") or link == "usb":
+        if _usb_send_cmd(cmd):
+            return True
+    if link == "ble":
+        return _ble_send_cmd(cmd)
     return False
 
 
 def usb_loop():
+    """USB только если ROBOT_LINK=usb|auto. При ble — поток спит (кабель не перехватывает)."""
     global _cleared_on_connect
     buf = b""
     while not _stop.is_set():
+        if LINK_PREF == "ble":
+            # Не трогаем serial — иначе macOS/кабель убивает BLE-канал пульта
+            time.sleep(2)
+            continue
+
         st = snapshot()
         with _ser_lock:
             s = _ser
 
         if s is None or not s.is_open:
-            if st.get("link") == "ble":
-                if open_serial():
-                    print("[usb] кабель появился — переключаюсь с BLE")
-                else:
-                    time.sleep(3)
+            if LINK_PREF == "auto" and st.get("link") == "ble":
+                time.sleep(2)
                 continue
 
-            set_state(scanning=True, error="ищу USB/BLE…")
-            if open_serial():
-                buf = b""
-                continue
+            if LINK_PREF == "usb" or (LINK_PREF == "auto" and st.get("link") != "ble"):
+                set_state(scanning=True, error="ищу USB…")
+                if open_serial():
+                    buf = b""
+                    continue
             time.sleep(0.8)
             continue
 
@@ -380,7 +425,7 @@ def usb_loop():
                     if not text:
                         continue
                     ingest_line(text)
-                    if text.startswith(("E,", "ODO", "CLIFF", "POSE", "STATE", "go")):
+                    if text.startswith(("E,", "ODO", "CLIFF", "POSE", "STATE", "go", "PLAN", "SERP", "MAP")):
                         set_state(link="usb", scanning=False, error="")
                     elif "ESP32_ROBOT" in text or "ready" in text:
                         set_state(link="usb", scanning=False, error="")
@@ -395,7 +440,13 @@ def usb_loop():
 
 
 async def _ble_send(client, cmd: str):
-    await client.write_gatt_char(CMD_UUID, cmd.encode("utf-8"), response=True)
+    # Characteristic is WRITE_NR — response=False надёжнее на macOS/bleak
+    payload = cmd.encode("utf-8")
+    try:
+        await client.write_gatt_char(CMD_UUID, payload, response=False)
+    except Exception:
+        await client.write_gatt_char(CMD_UUID, payload, response=True)
+    await asyncio.sleep(0.05)
 
 
 async def ble_loop():
@@ -409,19 +460,24 @@ async def ble_loop():
             text = bytes(data).decode("utf-8", "replace").strip()
         except Exception:
             return
-        if snapshot().get("link") == "usb":
+        if LINK_PREF != "ble" and snapshot().get("link") == "usb":
             return
         ingest_line(text)
-        if text.startswith(("E,", "ODO", "CLIFF", "POSE", "STATE", "go")):
+        if text.startswith(
+            ("E,", "ODO", "CLIFF", "POSE", "STATE", "go", "PLAN", "SERP", "MAP", "LANE", "PHASE")
+        ):
             set_state(link="ble", scanning=False, error="")
 
     while not _stop.is_set():
-        if snapshot().get("link") == "usb" or list_candidate_ports():
+        if LINK_PREF == "usb":
+            await asyncio.sleep(2)
+            continue
+        if LINK_PREF == "auto" and snapshot().get("link") == "usb":
             await asyncio.sleep(2)
             continue
 
         set_state(scanning=True, error="скан BLE…")
-        print(f"[ble] ищу {DEVICE_NAME}…")
+        print(f"[ble] ищу {DEVICE_NAME}… (ROBOT_LINK={LINK_PREF})")
         try:
             device = await BleakScanner.find_device_by_name(DEVICE_NAME, timeout=8.0)
             if device is None:
@@ -435,7 +491,7 @@ async def ble_loop():
                     timeout=6.0,
                 )
             if device is None:
-                set_state(link="none", scanning=True, error="ESP32_ROBOT не в эфире")
+                set_state(link="none", scanning=True, error="ESP32_ROBOT не в эфире (BLE)")
                 await asyncio.sleep(2)
                 continue
 
@@ -448,13 +504,13 @@ async def ble_loop():
                     raise RuntimeError("GATT не поднялся")
                 await client.start_notify(TELEM_UUID, on_telem)
                 set_state(link="ble", scanning=False, error="", name=device.name or DEVICE_NAME)
-                print("[ble] подключено")
+                print("[ble] подключено — команды и телеметрия по BLE")
                 await _ble_send(client, "C")
                 await _ble_send(client, "V55")
 
                 while client.is_connected and not _stop.is_set():
-                    if snapshot().get("link") == "usb":
-                        print("[ble] USB перехватил — отключаюсь")
+                    if LINK_PREF == "auto" and snapshot().get("link") == "usb":
+                        print("[ble] USB режим — отключаюсь")
                         break
                     try:
                         cmd = await asyncio.wait_for(_ble_queue.get(), timeout=1.0)
@@ -551,6 +607,7 @@ class Handler(SimpleHTTPRequestHandler):
 
 def main():
     reset_map()
+    print(f"[link] ROBOT_LINK={LINK_PREF} (ble=воздух, usb=кабель, auto=BLE→USB)")
     threading.Thread(target=usb_loop, daemon=True, name="usb").start()
     threading.Thread(target=ble_thread_main, daemon=True, name="ble").start()
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)

@@ -1,17 +1,28 @@
-# Пульт робота МеталИнспектор (режим езды, камера offline)
+# Пульт робота — канал BLE (змейка + телеметрия)
 
 ## Запуск
 
 ```bash
 cd /Users/xxx/BLE
-pip install -r requirements.txt   # bleak + pyserial
 bash control/start_bridge.sh
 ```
 
-Открыть: http://127.0.0.1:8765/
+Открыть: **http://127.0.0.1:8765/**
 
-- Есть USB-кабель → канал USB  
-- Нет кабеля → автопоиск BLE `ESP32_ROBOT`
+По умолчанию `ROBOT_LINK=ble`: команды (F/B/L/R/S/G/P…) и телеметрия (E/ODO/POSE/STATE) идут **только по Bluetooth**.
+
+USB-кабель можно оставить для питания/зарядки — пульт его не использует.
+Только USB: `ROBOT_LINK=usb bash control/start_bridge.sh`
+
+## Змейка по BLE
+
+1. Дождись статуса **канал BLE · готово**
+2. Размер конструкции (мм)
+3. **▶ Авто + карта (G)** → шлёт `Pширина,высота` затем `G` по BLE
+4. На карте растут path / ODO / NAV из notify
+
+СТОП = Space / кнопка стоп (`S` по BLE).
+
 
 ## Управление
 

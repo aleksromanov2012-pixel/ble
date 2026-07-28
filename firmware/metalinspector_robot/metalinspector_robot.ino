@@ -81,10 +81,10 @@ static const float HOME_RADIUS_MM = 140.0f;
 static const float KP_STRAIGHT = 0.55f;
 static const float KI_STRAIGHT = 0.012f;
 static const int CORR_MAX = 70;
-static const int TRIM_LEFT = 52;   // увод вправо → сильнее левый борт
-static const int TRIM_RIGHT = 0;
-static const int TURN_PWM = 95;   // 100 опрокидывал; 95 стабильнее на магн. колёсах
-static const int NUDGE_PWM = 70;
+static const int TRIM_LEFT = 8;    // был 52 (против увода вправо) — теперь клонит влево
+static const int TRIM_RIGHT = 42;  // сильнее правый борт → тянет курс вправо
+static const int TURN_PWM = 130;   // повороты змейки быстрее (было 95)
+static const int NUDGE_PWM = 85;
 static const int BACKUP_PWM = 55;
 static const int SPEED_DEFAULT = 55;
 static const int SPEED_AUTO_MAX = 75;  // авто чуть мягче — ровнее полосы
@@ -280,16 +280,15 @@ void updateStraightDrive(){
 }
 int turnPwm(){
   int p = TURN_PWM;
-  // не разгоняем поворот от круиза — иначе танк опрокидывается
-  if (p < 85) p = 85;
-  if (p > 120) p = 120;
+  if (p < 90) p = 90;
+  if (p > 150) p = 150;
   return p;
 }
-// танковый разворот всеми 4, но умеренный PWM
+// танковый разворот всеми 4
 void driveTurn(bool right, int pwm) {
   ignoreCliffLatchGate = true;
-  if (pwm < 85) pwm = 85;
-  if (pwm > 120) pwm = 120;
+  if (pwm < 90) pwm = 90;
+  if (pwm > 150) pwm = 150;
   if (right) setMotorsRaw(pwm, -pwm);
   else setMotorsRaw(-pwm, pwm);
 }

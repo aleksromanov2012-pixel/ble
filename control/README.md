@@ -51,5 +51,5 @@ arduino-cli upload -p /dev/cu.wchusbserial* -b esp32:esp32:esp32s3 firmware/meta
 Библиотеки Arduino: **NimBLE-Arduino 2.x**, **VL53L0X** (Pololu).
 
 Пины моторов/энкодеров — LOCKED (см. `.cursor/rules/robot-hardware-pins.mdc`).
-LN инвертирован в прошивке. Trim влево +52 PWM против увода вправо.
+LN инвертирован в прошивке. Trim: L+8 / R+42 (против увода влево). Поворот PWM 130.
 `DRIVE_ONLY=1`: после покрытия нет второго прохода с камерой.

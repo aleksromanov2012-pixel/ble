@@ -164,8 +164,12 @@ void initEncoders() {
 }
 
 void readGuideTicks(long* L, long* R) {
-  noInterrupts(); long lv = encLV, rv = encRV; interrupts();
-  *L = labs(lv); *R = labs(rv);
+  noInterrupts();
+  long lv = encLV, ln = encLN, rn = encRN, rv = encRV;
+  interrupts();
+  // Average both wheels per side (LV/LN, RV/RN). Dead encoder ≈ 0 and does not hurt much.
+  *L = (labs(lv) + labs(ln)) / 2;
+  *R = (labs(rv) + labs(rn)) / 2;
 }
 void resetStraightBaseline() { readGuideTicks(&baseL, &baseR); integErr = 0; }
 float arcMmForDeg(float deg) { return (PI * TRACK_WIDTH_MM * fabsf(deg)) / 360.0f; }
@@ -469,33 +473,42 @@ void pollCliff(){
   if(mask==0){ cliffHitStreak=0; return; }
   if(cliffHitStreak<255)cliffHitStreak++;
   if(cliffLatched||cliffHitStreak<CLIFF_NEED)return;
-  // сдвиг: стоп по краю, но покрытие не завершаем (змейка жива)
+
+  // Сдвиг полосы: край = доехали до края плиты поперёк → сразу 2-й поворот в новую полосу
   if(nav==NAV_SHIFT){
     cliffLatched=true;
     emitCliffEvent(mask==1?"fl":(mask==2?"fr":"both"));
     applyBrakeAll();
     emitLine("CLIFF_SHIFT");
-    setNav(NAV_IDLE);
+    if(autoMission){
+      beginTurn90(laneIndex%2==0, NAV_TURN2);
+    } else {
+      setNav(NAV_IDLE);
+    }
     return;
   }
+
   if(nav==NAV_CRUISE||nav==NAV_SCAN_CRUISE||nav==NAV_HOME_DRIVE){
     float progressed = pathMm - laneStartPathMm;
-    bool nearEnd = autoMission && planReady && laneLenMm > 0 && progressed >= laneLenMm * 0.85f;
     cliffLatched=true;
     emitCliffEvent(mask==1?"fl":(mask==2?"fr":"both"));
     applyBrakeAll();
     Serial.printf("CLIFF STOP mask=%u odo=%.0f/%.0f auto=%d\n",
                   mask, progressed, laneLenMm, (int)autoMission);
     emitLine(mask==3?"CLIFF_BOTH":(mask==1?"CLIFF_FL":"CLIFF_FR"));
-    if(autoMission && mask==3 && nearEnd){
-      // у конца полосы оба края → штатный разворот змейки
-      emitLine("LANE_END");
-      beginBackup();
-    } else if(autoMission && mask!=3){
-      // один борт — подправить и ехать дальше
-      handleCliffOnCruise(mask);
+
+    if(autoMission && (nav==NAV_CRUISE || nav==NAV_SCAN_CRUISE)){
+      // ЗМЕЙКА: край плиты = конец полосы.
+      // Не требуем nearEnd по одометру (энкодеры часто врут) — иначе вечный стоп.
+      // Один борт в самом начале полосы (<80 мм) → лёгкий nudge; иначе backup→90→сдвиг→90.
+      if(mask != 3 && progressed < 80.0f){
+        handleCliffOnCruise(mask);
+      } else {
+        emitLine("LANE_END");
+        beginBackup();
+      }
     } else {
-      // ручной режим или оба края рано — жёсткий стоп
+      // ручной F или HOME — стоп у края
       setNav(NAV_IDLE);
     }
   }
@@ -542,9 +555,8 @@ void tickNav(){
       if(clear||maneuverDone()){
         applyBrakeAll(); m=readFrontCliffMask();
         float progressed = pathMm - laneStartPathMm;
-        bool nearEnd = planReady && laneLenMm > 0 && progressed >= laneLenMm * 0.85f;
-        if(m==3 && nearEnd) onLaneEnd();
-        else if(m==3){ cliffLatched=true; applyBrakeAll(); setNav(NAV_IDLE); }
+        // После nudge: оба края или один край после прогресса → змейка, не стоп
+        if(m==3 || (m && progressed >= 80.0f)) onLaneEnd();
         else if(m) handleCliffOnCruise(m);
         else enterCruise();
       }

@@ -278,10 +278,10 @@
 
     <div class="speed">
       <div class="speed-head">
-        <span>Скорость PWM</span>
-        <b id="speedLabel">55</b>
+        <span>Скорость PWM (WASD / − =)</span>
+        <b id="speedLabel">150</b>
       </div>
-      <input id="speed" type="range" min="40" max="90" value="55" />
+      <input id="speed" type="range" min="60" max="220" value="150" step="5" />
       <div style="display:flex;gap:8px;margin-top:4px">
         <button class="btn" id="btnClearCliff" type="button" style="flex:1">Сброс края (C)</button>
         <button class="btn" id="btnCliffOff" type="button" style="flex:1">Защита off (X0)</button>
@@ -320,10 +320,12 @@
     </div>
 
     <p class="hint">
+      <strong style="color:var(--ink);font-weight:500">Ручное:</strong>
+      <b>WASD</b> / стрелки — езда (отпустил = стоп), <b>Space</b> = стоп,
+      <b>− / =</b> или слайдер — скорость 60…220.
+      <br/>
       <strong style="color:var(--ink);font-weight:500">Змейка (G)</strong>:
-      вперёд → край → <b>назад</b> → <b>направо</b> → сдвиг → <b>направо</b> → вперёд →
-      край → <b>назад</b> → <b>налево</b> → сдвиг → <b>налево</b> → … (по BLE).
-      Камера offline. Trim тянет вправо против увода влево.
+      вперёд → край → назад → направо → сдвиг → направо → … (чёт/нечёт).
     </p>
   </div>
 
@@ -488,13 +490,13 @@
 
     document.querySelectorAll("#pad .btn").forEach((btn) => {
       const cmd = btn.dataset.cmd;
-      const isHold = cmd === "L" || cmd === "R" || cmd === "B";
+      const isHold = cmd === "L" || cmd === "R" || cmd === "B" || cmd === "F";
       const down = async (e) => {
         e.preventDefault();
         if (!connected) return;
         btn.classList.add("held");
-        if (cmd === "S" || cmd === "F") { holdCmd = null; await send(cmd); return; }
-        if (isHold) { holdCmd = cmd; await send(cmd); }
+        if (cmd === "S") { holdCmd = null; await send(cmd); return; }
+        if (isHold) { holdCmd = cmd; await send("V" + speed.value); await send(cmd); }
       };
       const up = async (e) => {
         e.preventDefault();
@@ -508,6 +510,69 @@
       btn.addEventListener("pointercancel", up);
     });
 
+    const keyToCmd = {
+      KeyW: "F", ArrowUp: "F",
+      KeyS: "B", ArrowDown: "B",
+      KeyA: "L", ArrowLeft: "L",
+      KeyD: "R", ArrowRight: "R",
+      Space: "S",
+    };
+    const keysDown = new Set();
+
+    function bumpSpeed(delta) {
+      const lo = +speed.min || 60, hi = +speed.max || 220;
+      const next = Math.max(lo, Math.min(hi, (+speed.value || 150) + delta));
+      speed.value = String(next);
+      speedLabel.textContent = speed.value;
+      if (connected) {
+        send("V" + speed.value);
+        lastSpeedSent = speed.value;
+      }
+    }
+
+    window.addEventListener("keydown", async (e) => {
+      if (e.target && /^(INPUT|TEXTAREA|SELECT)$/i.test(e.target.tagName)) return;
+      if (e.code === "Minus" || e.code === "NumpadSubtract" || e.key === "[") {
+        e.preventDefault(); bumpSpeed(-10); return;
+      }
+      if (e.code === "Equal" || e.code === "NumpadAdd" || e.key === "]" || e.key === "=") {
+        e.preventDefault(); bumpSpeed(10); return;
+      }
+      const cmd = keyToCmd[e.code];
+      if (!cmd || !connected) return;
+      e.preventDefault();
+      if (cmd === "S") {
+        keysDown.clear();
+        holdCmd = null;
+        await send("S");
+        return;
+      }
+      if (keysDown.has(e.code)) return;
+      keysDown.add(e.code);
+      holdCmd = cmd;
+      await send("V" + speed.value);
+      await send(cmd);
+    });
+
+    window.addEventListener("keyup", async (e) => {
+      if (e.target && /^(INPUT|TEXTAREA|SELECT)$/i.test(e.target.tagName)) return;
+      const cmd = keyToCmd[e.code];
+      if (!cmd || cmd === "S") return;
+      keysDown.delete(e.code);
+      if (holdCmd === cmd) {
+        holdCmd = null;
+        if (connected) await send("S");
+      }
+    });
+
+    window.addEventListener("blur", async () => {
+      keysDown.clear();
+      if (holdCmd) {
+        holdCmd = null;
+        if (connected) await send("S");
+      }
+    });
+
     function updatePlanHint(){
       const w=+$("surfW").value||0, h=+$("surfH").value||0;
       const pitch=220, cross=225;
@@ -518,8 +583,7 @@
     updatePlanHint();
     $("btnMission").addEventListener("click", async () => {
       const w = +$("surfW").value || 2000, h = +$("surfH").value || 800;
-      const v = speed.value || "55";
-      // По BLE: план → пауза → старт змейки (иначе G может прийти раньше P)
+      const v = speed.value || "150";
       await send("V" + v);
       await new Promise((r) => setTimeout(r, 120));
       await send("P" + w + "," + h);

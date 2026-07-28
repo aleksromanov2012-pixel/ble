@@ -82,15 +82,16 @@ static const float KP_STRAIGHT = 0.35f;  // слабее PI — trim важне�
 static const float KI_STRAIGHT = 0.006f;
 static const int CORR_MAX = 35;
 static const int TRIM_LEFT = 0;
-static const int TRIM_RIGHT = 95;  // сильно вправо против увода влево
-static const int TURN_PWM = 145;
-static const int NUDGE_PWM = 95;
-static const int BACKUP_PWM = 75;
-static const int SPEED_DEFAULT = 55;
-static const int SPEED_AUTO_MAX = 75;
+static const int TRIM_RIGHT = 110; // против увода влево при высокой скорости
+static const int TURN_PWM = 170;
+static const int NUDGE_PWM = 120;
+static const int BACKUP_PWM = 110;
+static const int SPEED_DEFAULT = 150;
+static const int SPEED_AUTO_MAX = 200;
+static const int SPEED_MAX = 220;
 // Время — только ДЛИННЫЙ запас (раньше 650/850 обрывали манёвр слишком рано)
-static const uint32_t TURN90_MS = 1600;
-static const uint32_t BACKUP_MS = 1600;
+static const uint32_t TURN90_MS = 1400;
+static const uint32_t BACKUP_MS = 1400;
 
 int speedVal = SPEED_DEFAULT;
 volatile long encLV = 0, encLN = 0, encRN = 0, encRV = 0;
@@ -253,7 +254,13 @@ void pollMappingSteps(){
 float distToHome(){ return sqrtf(poseX*poseX+poseY*poseY); }
 float wrapPi(float a){ while(a>PI)a-=2*PI; while(a<-PI)a+=2*PI; return a; }
 int clampSpeed(int s){ if(s>255)return 255; if(s<-255)return -255; return s; }
-int cruiseSpeed(){ int v=speedVal; if(autoMission&&v>SPEED_AUTO_MAX)v=SPEED_AUTO_MAX; if(v<40)v=40; return v; }
+int cruiseSpeed(){
+  int v = speedVal;
+  if (autoMission && v > SPEED_AUTO_MAX) v = SPEED_AUTO_MAX;
+  if (v < 50) v = 50;
+  if (v > SPEED_MAX) v = SPEED_MAX;
+  return v;
+}
 
 void driveMotorSigned(int dirPin,int pwmPin,int speed){
   speed=clampSpeed(speed); braking=false;
@@ -294,14 +301,17 @@ void updateStraightDrive(){
 }
 int turnPwm(){
   int p = TURN_PWM;
-  if (p < 100) p = 100;
-  if (p > 170) p = 170;
+  // поворот не слабее круиза
+  int c = cruiseSpeed();
+  if (p < c) p = c;
+  if (p < 120) p = 120;
+  if (p > 220) p = 220;
   return p;
 }
 void driveTurn(bool right, int pwm) {
   ignoreCliffLatchGate = true;
-  if (pwm < 100) pwm = 100;
-  if (pwm > 170) pwm = 170;
+  if (pwm < 120) pwm = 120;
+  if (pwm > 220) pwm = 220;
   if (right) setMotorsRaw(pwm, -pwm);
   else setMotorsRaw(-pwm, pwm);
 }
@@ -623,7 +633,7 @@ void startMission(){
   if (!planReady) applyPlan(surfaceW, surfaceH);
   autoMission=true; mappingMode=true; scanPass=false; laneIndex=0;
   if(speedVal>SPEED_AUTO_MAX)speedVal=SPEED_AUTO_MAX;
-  if(speedVal<30)speedVal=SPEED_DEFAULT;
+  if(speedVal<50)speedVal=SPEED_DEFAULT;
   // край остаётся ВКЛ; сбрасываем ложный latch, чтобы Авто не стояло на старте
   cliffEnabled=true; clearCliffLatch("G");
   resetMapPose(); setPhase(PHASE_MAP);
@@ -679,7 +689,12 @@ bool handleMotorCommand(const String& s){
 }
 bool handleSpeedCommand(const String& s){
   if(s.length()<2||(s[0]!='V'&&s[0]!='v'))return false;
-  int v=s.substring(1).toInt(); if(v<30)v=30; if(v>90)v=90; speedVal=v; return true;
+  int v=s.substring(1).toInt();
+  if(v<50)v=50;
+  if(v>SPEED_MAX)v=SPEED_MAX;
+  speedVal=v;
+  Serial.printf("speed=%d\n", speedVal);
+  return true;
 }
 // X1/X = край ON, X0 = OFF (явное, не toggle)
 bool handleCliffCommand(const String& s){

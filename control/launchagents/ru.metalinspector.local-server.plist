@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ru.metalinspector.local-server</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Library/Frameworks/Python.framework/Versions/3.11/bin/python3</string>
+    <string>-m</string>
+    <string>uvicorn</string>
+    <string>inspector.server.app:app</string>
+    <string>--host</string>
+    <string>0.0.0.0</string>
+    <string>--port</string>
+    <string>8712</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/VladislavOzerin/metalinspector</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/mi_local.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/mi_local.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>INSPECTOR_AUTH</key>
+    <string>0</string>
+    <key>INSPECTOR_ROBOT_TOKEN</key>
+    <string>a896062ed82a5b33a9d8ff5c163056f9</string>
+    <key>PATH</key>
+    <string>/Library/Frameworks/Python.framework/Versions/3.11/bin:/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>

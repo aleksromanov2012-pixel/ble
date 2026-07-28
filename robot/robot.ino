@@ -1,3 +1,8 @@
+/*
+ * LEGACY — не прошивать на боевого робота.
+ * Актуальная прошивка: firmware/metalinspector_robot/metalinspector_robot.ino
+ * (PI-прямолинейность, ToF-край, змейка, LN invert, DRIVE_ONLY).
+ */
 #include <NimBLEDevice.h>
 #include <stdio.h>
 #include <string>

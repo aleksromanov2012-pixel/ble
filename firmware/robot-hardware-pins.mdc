@@ -1,0 +1,40 @@
+---
+description: Fixed motor and encoder pin map for ESP32_ROBOT — never change motor pins
+globs: robot/**/*
+alwaysApply: true
+---
+
+# Robot hardware pins (LOCKED)
+
+## Motor drivers — DO NOT CHANGE
+
+These pins and drive direction logic are verified working. Never modify:
+
+| Motor | DIR | PWM |
+|-------|-----|-----|
+| LV | 11 | 10 |
+| LN | 37 | 36 |
+| RN | 1 | 2 |
+| RV | 7 | 6 |
+
+```cpp
+#define DRIVER1_MOTOR1_DIR 11  // LV
+#define DRIVER1_MOTOR1_PWM 10
+#define DRIVER1_MOTOR2_DIR 37  // LN
+#define DRIVER1_MOTOR2_PWM 36
+#define DRIVER2_MOTOR1_DIR 1   // RN
+#define DRIVER2_MOTOR1_PWM 2
+#define DRIVER2_MOTOR2_DIR 7   // RV
+#define DRIVER2_MOTOR2_PWM 6
+```
+
+Control: in/in driver — forward `DIR=0,PWM=speed`, reverse `DIR=|speed|,PWM=0`.
+
+## Encoders (A, B)
+
+| Motor | A | B |
+|-------|---|---|
+| LV | 40 | 39 |
+| LN | 20 | 21 |
+| RN | 41 | 42 |
+| RV | 4 | 5 |

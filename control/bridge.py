@@ -59,7 +59,7 @@ _lock = threading.Lock()
 _ser = None
 _ser_lock = threading.Lock()
 _stop = threading.Event()
-_speed = 150
+_speed = 255
 _cleared_on_connect = False
 
 _ble_loop: asyncio.AbstractEventLoop | None = None
@@ -355,7 +355,7 @@ def write_cmd(cmd: str) -> bool:
     global _speed
     if cmd[0] in "Vv" and len(cmd) > 1:
         try:
-            _speed = max(50, min(220, int(cmd[1:])))
+            _speed = max(50, min(255, int(cmd[1:])))
         except ValueError:
             pass
 
@@ -506,7 +506,7 @@ async def ble_loop():
                 set_state(link="ble", scanning=False, error="", name=device.name or DEVICE_NAME)
                 print("[ble] подключено — команды и телеметрия по BLE")
                 await _ble_send(client, "C")
-                await _ble_send(client, "V150")
+                await _ble_send(client, "V255")
 
                 while client.is_connected and not _stop.is_set():
                     if LINK_PREF == "auto" and snapshot().get("link") == "usb":

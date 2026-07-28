@@ -279,9 +279,9 @@
     <div class="speed">
       <div class="speed-head">
         <span>Скорость PWM (WASD / − =)</span>
-        <b id="speedLabel">150</b>
+        <b id="speedLabel">255</b>
       </div>
-      <input id="speed" type="range" min="60" max="220" value="150" step="5" />
+      <input id="speed" type="range" min="60" max="255" value="255" step="5" />
       <div style="display:flex;gap:8px;margin-top:4px">
         <button class="btn" id="btnClearCliff" type="button" style="flex:1">Сброс края (C)</button>
         <button class="btn" id="btnCliffOff" type="button" style="flex:1">Защита off (X0)</button>
@@ -521,8 +521,8 @@
     const keysDown = new Set();
 
     function bumpSpeed(delta) {
-      const lo = +speed.min || 60, hi = +speed.max || 220;
-      const next = Math.max(lo, Math.min(hi, (+speed.value || 150) + delta));
+      const lo = +speed.min || 60, hi = +speed.max || 255;
+      const next = Math.max(lo, Math.min(hi, (+speed.value || 255) + delta));
       speed.value = String(next);
       speedLabel.textContent = speed.value;
       if (connected) {
@@ -584,7 +584,7 @@
     updatePlanHint();
     $("btnMission").addEventListener("click", async () => {
       const w = +$("surfW").value || 2000, h = +$("surfH").value || 800;
-      const v = speed.value || "150";
+      const v = speed.value || "255";
       await send("V" + v);
       await new Promise((r) => setTimeout(r, 120));
       await send("P" + w + "," + h);

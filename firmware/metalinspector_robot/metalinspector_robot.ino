@@ -86,9 +86,9 @@ static const int TRIM_RIGHT = 110; // против увода влево при 
 static const int TURN_PWM = 170;
 static const int NUDGE_PWM = 120;
 static const int BACKUP_PWM = 110;
-static const int SPEED_DEFAULT = 150;
-static const int SPEED_AUTO_MAX = 200;
-static const int SPEED_MAX = 220;
+static const int SPEED_DEFAULT = 255;
+static const int SPEED_AUTO_MAX = 255;
+static const int SPEED_MAX = 255;
 // Время — только ДЛИННЫЙ запас (раньше 650/850 обрывали манёвр слишком рано)
 static const uint32_t TURN90_MS = 1400;
 static const uint32_t BACKUP_MS = 1400;
@@ -317,17 +317,16 @@ void updateStraightDrive(){
 }
 int turnPwm(){
   int p = TURN_PWM;
-  // поворот не слабее круиза
   int c = cruiseSpeed();
   if (p < c) p = c;
   if (p < 120) p = 120;
-  if (p > 220) p = 220;
+  if (p > 255) p = 255;
   return p;
 }
 void driveTurn(bool right, int pwm) {
   ignoreCliffLatchGate = true;
   if (pwm < 120) pwm = 120;
-  if (pwm > 220) pwm = 220;
+  if (pwm > 255) pwm = 255;
   if (right) setMotorsRaw(pwm, -pwm);
   else setMotorsRaw(-pwm, pwm);
 }

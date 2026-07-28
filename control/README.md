@@ -1,4 +1,4 @@
-# Пульт робота — канал BLE (змейка + телеметрия)
+# Пульт робота — канал BLE
 
 ## Запуск
 
@@ -7,49 +7,30 @@ cd /Users/xxx/BLE
 bash control/start_bridge.sh
 ```
 
-Открыть: **http://127.0.0.1:8765/**
-
-По умолчанию `ROBOT_LINK=ble`: команды (F/B/L/R/S/G/P…) и телеметрия (E/ODO/POSE/STATE) идут **только по Bluetooth**.
-
-USB-кабель можно оставить для питания/зарядки — пульт его не использует.
-Только USB: `ROBOT_LINK=usb bash control/start_bridge.sh`
-
-## Змейка по BLE
-
-1. Дождись статуса **канал BLE · готово**
-2. Размер конструкции (мм)
-3. **▶ Авто + карта (G)** → шлёт `Pширина,высота` затем `G` по BLE
-4. На карте растут path / ODO / NAV из notify
-
-СТОП = Space / кнопка стоп (`S` по BLE).
-
+→ **http://127.0.0.1:8765/**  
+`ROBOT_LINK=ble` (по умолчанию): команды и телеметрия только по Bluetooth.
 
 ## Управление
 
-| Кнопка / клавиша | Команда |
+| Клавиша / кнопка | Действие |
 |---|---|
-| Авто + карта | `G` — змейка по плану `Pwidth,height` |
-| Вперёд / ↑ W | `F` — прямо + PI по энкодерам + стоп по краю |
-| Назад / ↓ S | `B` |
-| Влево / ← A | `L` |
-| Вправо / → D | `R` |
-| СТОП / Space | `S` — short-brake |
-| Сброс края | `C` |
-| Защита off | `X0` (только отладка), `X1` — снова ON |
+| WASD / стрелки | Ручная езда, **без края ToF** |
+| Space | Стоп |
+| − / = / слайдер | Скорость **60…255** (макс по умолчанию) |
+| Авто (G) | Змейка; край ToF снова **ВКЛ** |
+| C | Сброс latch края |
+| X0 / X1 | Край off / on |
 
-Скорость: слайдер шлёт `V30`…`V90` (авто capped ~75).
+## Змейка
 
-## Прошивка (обязательно эта, не старый `robot/robot.ino`)
+План размера мм → **Авто (G)** → `P…` затем `G` по BLE.  
+Чётная полоса: назад → направо → сдвиг → направо. Нечётная: налево.
+
+## Прошивка
 
 ```bash
 bash scripts/flash_robot.sh
-# или:
-arduino-cli compile -b esp32:esp32:esp32s3 firmware/metalinspector_robot
-arduino-cli upload -p /dev/cu.wchusbserial* -b esp32:esp32:esp32s3 firmware/metalinspector_robot
+# firmware/metalinspector_robot — не robot/robot.ino
 ```
 
-Библиотеки Arduino: **NimBLE-Arduino 2.x**, **VL53L0X** (Pololu).
-
-Пины моторов/энкодеров — LOCKED (см. `.cursor/rules/robot-hardware-pins.mdc`).
-LN инвертирован в прошивке. Trim: L+8 / R+42 (против увода влево). Поворот PWM 130.
-`DRIVE_ONLY=1`: после покрытия нет второго прохода с камерой.
+Пины LOCKED. LN invert. Trim L+0 / R+110. `DRIVE_ONLY=1` (без камеры).

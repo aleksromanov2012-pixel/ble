@@ -1,44 +1,32 @@
 # ESP32 BLE Robot — МеталИнспектор (ездa)
 
-Рабочий стек езды из дампа `metalins` (камера на Pi сейчас offline — режим **DRIVE_ONLY**).
+Рабочий стек езды (камера на Pi offline — **DRIVE_ONLY**).
 
 ## Что использовать
 
 | Компонент | Путь | Назначение |
 |-----------|------|------------|
-| **Прошивка** | `firmware/metalinspector_robot/` | PI-прямолинейность, trim, ToF-край, змейка `G` |
-| **Пульт** | `control/bridge.py` + `index.html` | USB/BLE → http://127.0.0.1:8765/ |
+| **Прошивка** | `firmware/metalinspector_robot/` | змейка `G`, ToF-край (только авто), WASD без края |
+| **Пульт** | `control/bridge.py` + `index.html` | BLE → http://127.0.0.1:8765/ |
 | Flash | `scripts/flash_robot.sh` | arduino-cli → ESP32-S3 |
-| Legacy GUI | `app.py` | pygame WASD (команды `M`/`F`… совместимы) |
-| Legacy sketch | `robot/robot.ino` | **не прошивать** — старая простая езда без PI/ToF |
 
-## Быстрый старт (только езда)
+## Быстрый старт
 
-1. Прошей ESP32-S3 (нужен data-USB):
-   ```bash
-   bash scripts/flash_robot.sh
-   ```
-2. Запусти пульт:
-   ```bash
-   pip install -r requirements.txt
-   bash control/start_bridge.sh
-   ```
-3. Браузер: **http://127.0.0.1:8765/**  
-   Без кабеля — BLE `ESP32_ROBOT`. С кабелем — USB приоритетнее.
+```bash
+bash scripts/flash_robot.sh          # data-USB
+bash control/start_bridge.sh         # ROBOT_LINK=ble по умолчанию
+# → http://127.0.0.1:8765/
+```
+
+Канал по умолчанию **BLE**. USB-кабель можно оставить для питания/прошивки — пульт serial не перехватывает при `ROBOT_LINK=ble`.
 
 ## Управление
 
-- **W/A/S/D** или кнопки — ручная езда  
-- **G** — авто-змейка (сначала план `Pширина,высота` мм с пульта)  
-- **Space** — стоп  
-- **C** — сброс latch края  
-- Слайдер скорости → `V30`…`V90`
+- **WASD** / стрелки — ручная езда, **края ToF выкл** (свободная езда)
+- **Space** — стоп; **− / =** или слайдер — скорость **60…255** (дефолт **255**)
+- **G** — авто-змейка (край снова ВКЛ): назад → 90 → сдвиг → 90…
+- **C** — сброс latch; **X0/X1** — край вручную off/on
 
 ## Железо (LOCKED)
 
-Моторы DIR/PWM и энкодеры — см. `.cursor/rules/robot-hardware-pins.mdc`.  
-В прошивке LN инвертирован; trim влево +52. ToF VL53L0X на I2C (SDA8/SCL9, XSHUT 12–15).
-
-## Камера
-
-Сломана на Pi — в прошивке `DRIVE_ONLY=1`: после покрытия нет `CAMERA_ON` / второго SCAN-прохода. События `go` можно игнорировать.
+Пины — `.cursor/rules/robot-hardware-pins.mdc`. LN инвертирован. Trim сейчас **L+0 / R+110** (против увода влево). ToF VL53L0X I2C SDA8/SCL9.
